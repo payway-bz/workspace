@@ -1,0 +1,68 @@
+#!/bin/bash
+set -e
+
+usage() {
+  echo "
+    Usage: bash $(basename "${0}") <--dev> <docker-compose args> app1 app2 app3 ... appN
+
+    Deploy apps with docker compose.
+    "
+}
+
+# Check at least 1 app is passed
+if [[ "$#" -lt 1 ]]; then
+  echo "ERROR: At least one app is required."
+  usage
+  exit 1
+fi
+
+APPS=()
+DEV_APPS=()
+
+# Iterate over all the arguments and parse arguments
+DOCKER_COMPOSE_ARGS=()
+while [[ $# -gt 0 ]]; do
+  key="$1"
+  case $key in
+    --dev)
+      shift
+      value="$1"
+      APPS+=("$value")
+      DEV_APPS+=("$value")
+      shift
+      echo "Running $value in 'dev' mode."
+      ;;
+    -*)
+      # If the argument starts with - and it's not --dev, it is a docker-compose argument
+      DOCKER_COMPOSE_ARGS+=("$1")
+      shift
+      ;;
+    *)
+      APPS+=("$key")
+      shift
+      echo "Running $key in 'prod' mode."
+      ;;
+  esac
+done
+
+
+DOCKER_COMPOSE_FILES=()
+# Get the list of apps to deploy from the remaining arguments
+for APP in "${APPS[@]}"; do
+  DOCKER_COMPOSE_FILES+=("-f" "apps/$APP/docker-compose.yaml")
+  # If we are in dev mode, add the dev docker compose file if it exists
+  if [[ " ${DEV_APPS[*]} " =~ " $APP " ]]; then
+    DEV_FILE="apps/$APP/docker-compose.dev.yaml"
+    if [[ -f "$DEV_FILE" ]]; then
+      DOCKER_COMPOSE_FILES+=("-f" "$DEV_FILE")
+    fi
+  fi
+done
+
+APPS_DIRECTORY="$(pwd)/apps"
+export APPS_DIRECTORY
+
+docker compose \
+  "${DOCKER_COMPOSE_FILES[@]}" \
+  up \
+  "${DOCKER_COMPOSE_ARGS[@]}"

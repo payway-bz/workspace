@@ -1,0 +1,64 @@
+#!/bin/bash
+set -e
+
+usage() {
+  echo "
+    Usage: bash $(basename "${0}") [-t | --tag <tag>] [-h | --help]
+
+    Push an image with a name and a tag to the registry.
+
+    Options:
+      -t, --tag     Tag of the image to push
+      -h, --help    Show this help message and exit
+    "
+}
+
+
+# Name of the app to build
+APP_PATH="$(pwd)"  # We are assuming that we are running the script from the root of the project
+APP_NAME="$(basename "$APP_PATH")"  # Name of the app to build
+
+# If [tag] is missing, default to 'latest'
+TAG="latest"
+REPOSITORY="$APP_NAME"
+
+while (( "$#" )); do
+  case "$1" in
+    -t|--tag)
+      # Check that the tag is passed
+      if [ -z "$2" ]; then
+        echo "ERROR: Tag is missing."
+        usage
+        exit 1
+      fi
+      TAG="$2"
+      shift 2
+      ;;
+    -h|--help)
+      # Show help
+      usage
+      exit 0
+      ;;
+    *)
+      # Other arguments are not allowed
+      echo "ERROR: Invalid argument: $1"
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+# Image name is the app name if
+IMAGE="$APP_NAME:$TAG"
+
+# TODO: use envs?
+REGION="us-central1"
+PROJECT_ID="payway-472402"
+FULL_PATH="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}"
+
+
+echo "INFO: Tagging $FULL_PATH"
+docker tag "$IMAGE" "$FULL_PATH"
+
+echo "INFO: Pushing $FULL_PATH"
+docker push "$FULL_PATH"

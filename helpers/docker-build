@@ -1,0 +1,72 @@
+#!/bin/bash
+set -e
+
+usage() {
+  echo "
+Usage: bash $(basename "${0}") [--dev] [-t | --tag <tag>] [ <other-docker-options> ]
+
+Build an image with name and tag plus other args
+
+Arguments description:
+  --dev                     Build image with target: 'dev' (default is 'prod').
+  -t --tag <tag>            Tag the built image with the given <tag>.
+  <other-docker-options>    Other docker options to pass to the docker build command.
+"
+}
+
+# Name of the app to build
+APP_PATH="$(pwd)"  # We are assuming that we are running the script from the root of the project
+APP_NAME="$(basename "$APP_PATH")"  # Name of the app to build
+
+# Default values
+TARGET="prod"  # Target to build the image for
+TAG="$TARGET"
+
+echo "ARGS: $#"
+
+# Parse args
+while (( "$#" )); do
+  case "$1" in
+    --dev)
+      # Check that the dev build is an option
+      if grep -q "AS dev$" ./Dockerfile; then
+        TARGET="dev"
+      else
+        echo "ERROR: 'dev' target not found in Dockerfile."
+        usage
+        exit 1
+      fi
+      shift
+      ;;
+    -t|--tag)
+      # Check that the tag is passed
+      if [ -z "$2" ]; then
+        echo "ERROR: Tag is missing."
+        usage
+        exit 1
+      fi
+      TAG="$2"
+      shift 2
+      ;;
+    *)
+      # Other arguments are passed to the docker build command
+      break
+      ;;
+  esac
+done
+
+# Set the tag to dev/prod if no tag is passed.
+if [[ "$TARGET" == "dev" ]]; then
+    TAG="dev"
+fi
+
+# Build the image. Note: the tag will be "dev" or "prod" if no tag was passed.
+IMAGE="$APP_NAME:$TAG"
+
+echo "INFO: Building '$IMAGE' in '$TARGET' mode..."
+
+docker build \
+  --tag "$IMAGE" \
+  --target "$TARGET" \
+  "$@" \
+  "$APP_PATH"

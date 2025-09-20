@@ -1,0 +1,81 @@
+#!/bin/bash
+set -e
+
+
+# Usage: bash make_lockfile.sh
+#
+# Build a simple image, generate the lockfile and extract it.
+
+
+# Config
+APP_PATH="$(pwd)"  # We are assuming that we are running the script from the root of the project
+APP_NAME="$(basename "$APP_PATH")"  # Name of the app to build
+export DOCKER_BUILDKIT=1  # Necessary for SSH forwarding config (in dk build, --ssh flag)
+LOCKFILE_TAG="make-lockfile"
+
+# Maintain a single source of truth for supported lockfile names
+LOCKFILE_NAMES=(
+  "Pipfile.lock"
+  "package-lock.json"
+  "yarn.lock"
+  "Cargo.lock"
+  "go.sum"
+  "pnpm-lock.yaml"
+)
+
+# Build the find expression dynamically from the array
+FIND_ARGS=(. -maxdepth 1 -type f "(")
+for i in "${!LOCKFILE_NAMES[@]}"; do
+  name="${LOCKFILE_NAMES[$i]}"
+  FIND_ARGS+=( -name "$name" )
+  # Add -o between names except after the last one
+  if [ "$i" -lt $(( ${#LOCKFILE_NAMES[@]} - 1 )) ]; then
+    FIND_ARGS+=( -o )
+  fi
+done
+FIND_ARGS+=( ")" )
+
+# Execute find with the constructed arguments
+LOCKFILE_NAME=$(find "${FIND_ARGS[@]}")
+
+# Robustly compute count
+if [ -z "$LOCKFILE_NAME" ]; then
+  FILE_COUNT=0
+else
+  FILE_COUNT=$(printf "%s\n" "$LOCKFILE_NAME" | wc -l | tr -d ' ')
+fi
+
+# If there are no matches, exit
+if [ "$FILE_COUNT" -eq 0 ]; then
+  echo "
+ERROR: No supported lockfile found in '$APP_PATH'.
+  The script needs to find a lockfile to get the name of the lockfile to extract from the docker image.
+  If a new microservice is being setup and it's the first build, just run 'touch <lockfile name>' to create an empty lockfile and define its name.
+  Supported lockfiles:"
+  for lf in "${LOCKFILE_NAMES[@]}"; do
+    echo "   - $lf"
+  done
+  exit 1
+fi
+# If there is more than 1 match, exit
+if [ "$FILE_COUNT" -gt 1 ]; then
+  echo "ERROR: Multiple lockfiles found in $APP_PATH."
+  echo "Files found:"
+  echo "$LOCKFILE_NAME"
+  echo -e "\nPlease ensure there's only one lockfile in the project root."
+  exit 1
+fi
+# Successfully found a lockfile. Let's get the name
+LOCKFILE_NAME=$(basename "$LOCKFILE_NAME")
+
+echo "INFO: Making lockfile image for: $APP_NAME"
+# Building with no-cache to pull the latest dependencies for the libraries that aren't pinned.
+docker build \
+  --ssh default \
+  --no-cache \
+  --tag "$APP_NAME":"$LOCKFILE_TAG" \
+  --target "$LOCKFILE_TAG" \
+  "$APP_PATH"
+
+echo "INFO: Getting $LOCKFILE_NAME from image..."
+docker run --rm "$APP_NAME:$LOCKFILE_TAG" cat "$LOCKFILE_NAME" > "$LOCKFILE_NAME"
